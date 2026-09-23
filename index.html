@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#edf3ee">
+  <meta name="description" content="A playful path through Claude architecture. Explore an idea, try a small experiment, and take a few good questions into the quiet.">
+  <meta property="og:title" content="Atlas | A different way to learn Claude">
+  <meta property="og:description" content="Small lessons, curious experiments, and a quiet place to make the ideas click.">
+  <meta property="og:type" content="website">
+  <title>Atlas | A Different Way to Learn Claude</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="assets/vendor.js"></script>
+  <script defer src="engine.js"></script>
+  <script defer src="content.js"></script>
+  <script defer src="scenarios.js"></script>
+  <script defer src="questions.js"></script>
+  <script defer src="audio.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to study content</a>
+  <aside class="sidebar" id="sidebar" aria-label="Study navigation">
+    <a class="brand" href="#learn" aria-label="Atlas home"><span class="brand-mark"><i data-lucide="orbit"></i></span><span>atlas<span class="brand-sub">THE CURIOUS ROUTE</span></span></a>
+    <div class="track-label">YOUR TRAIL</div>
+    <label class="sr-only" for="track-select">Study trail</label>
+    <select id="track-select">
+      <option value="architect">Architect Foundations</option>
+      <option value="developer">Developer essentials</option>
+      <option value="associate">Everyday Claude</option>
+      <option value="professional">Architecture in practice</option>
+    </select>
+    <nav class="nav-main">
+      <a href="#learn" data-view="learn"><i data-lucide="route"></i><span>Learning path</span><span class="nav-count" id="lesson-count">0</span></a>
+      <a href="#labs" data-view="labs"><i data-lucide="flask-conical"></i><span>Scenario lab</span></a>
+      <a href="#practice" data-view="practice"><i data-lucide="circle-check"></i><span>Practice room</span></a>
+      <a href="#recall" data-view="recall"><i data-lucide="layers"></i><span>Daily recall</span><span class="nav-count" id="recall-count">0</span></a>
+      <a href="#notebook" data-view="notebook"><i data-lucide="notebook-pen"></i><span>My notebook</span></a>
+    </nav>
+    <div class="sidebar-divider"></div>
+    <nav class="nav-secondary">
+      <a href="#progress" data-view="progress"><i data-lucide="chart-no-axes-combined"></i><span>Your progress</span></a>
+      <a href="#library" data-view="library"><i data-lucide="library"></i><span>Sources & field guide</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="streak"><i data-lucide="flame"></i><div><strong id="streak-count">Start your first day</strong><span>A little, then a little more.</span></div></div>
+      <div class="sidebar-foot"><span class="status-dot"></span>A field trip through Claude<span class="small"><a href="#library">Meet the sources <i data-lucide="arrow-up-right"></i></a></span></div>
+    </div>
+  </aside>
+  <div class="page-shell">
+    <header class="topbar">
+      <button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation" aria-expanded="false"><i data-lucide="menu"></i></button>
+      <div class="breadcrumb"><span>Atlas</span><i data-lucide="chevron-right"></i><strong id="view-name">Learning path</strong></div>
+      <div class="top-actions">
+        <button class="icon-button" id="search-toggle" title="Search concepts" aria-label="Search concepts"><i data-lucide="search"></i></button>
+        <button class="focus-toggle" id="focus-toggle" aria-pressed="false"><i data-lucide="scan"></i><span>Focus mode</span></button>
+        <span class="avatar" title="Your local study workspace">you</span>
+      </div>
+    </header>
+    <main id="main" tabindex="-1"><div class="initial-state"><p class="eyebrow">YOUR STUDY WORKSPACE</p><h1>Claude certification, one concept at a time.</h1><p>Opening your learning path...</p></div></main>
+    <footer class="page-footer"><span>Same ideas. A different path.</span><a href="#library">Sources & field notes <i data-lucide="arrow-up-right"></i></a></footer>
+  </div>
+  <section class="sound-dock" aria-label="Focus audio and timer">
+    <button id="audio-toggle" class="audio-play" aria-label="Play focus sound" aria-pressed="false"><i data-lucide="play"></i></button>
+    <div class="sound-info"><strong id="sound-title">Quiet current</strong><span id="sound-state">Original ambient audio</span></div>
+    <canvas id="sound-wave" width="90" height="30" aria-hidden="true"></canvas>
+    <label class="sr-only" for="sound-select">Soundscape</label>
+    <select id="sound-select"><option value="current">Quiet current</option><option value="rain">Soft rainfall</option><option value="drift">Deep drift</option><option value="noise">Brown noise</option></select>
+    <div class="volume-control"><i data-lucide="volume-1"></i><label class="sr-only" for="volume">Audio volume</label><input type="range" id="volume" min="0" max="100" value="22"></div>
+    <div class="dock-divider"></div>
+    <label class="sr-only" for="focus-duration">Focus session duration</label>
+    <select id="focus-duration"><option value="25">25 min</option><option value="45">45 min</option><option value="50">50 min</option><option value="5">5 min break</option></select>
+    <button id="timer-toggle" class="timer-button" title="Start or pause focus timer"><i data-lucide="timer"></i><span id="timer-display">25:00</span></button>
+    <button id="timer-reset" class="icon-button" aria-label="Reset focus timer" title="Reset timer"><i data-lucide="rotate-ccw"></i></button>
+    <a class="brain-link" href="https://www.brain.fm/" target="_blank" rel="noopener noreferrer" title="Open Brain.fm separately (external service)">Brain.fm <i data-lucide="arrow-up-right"></i></a>
+  </section>
+  <dialog id="search-dialog" class="search-dialog" aria-labelledby="search-heading">
+    <div class="dialog-heading"><h2 id="search-heading">Find a concept</h2><button class="icon-button" data-close-dialog aria-label="Close search"><i data-lucide="x"></i></button></div>
+    <label class="sr-only" for="global-search">Search all learning material</label><input id="global-search" type="search" placeholder="Try hooks, context, MCP, or JSON..." autocomplete="off">
+    <div id="search-results"></div>
+  </dialog>
+  <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title">Confirm</h2><p id="confirm-message"></p><div class="button-row"><button class="button secondary" id="confirm-cancel">Cancel</button><button class="button primary" id="confirm-accept">Continue</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input id="import-progress" type="file" accept="application/json,.json" hidden>
+  <noscript><div class="noscript">Atlas needs JavaScript for lessons and practice. Enable JavaScript, then reopen this page.</div></noscript>
+</body>
+</html>

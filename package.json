@@ -1,0 +1,20 @@
+{
+  "name": "claude-atlas-study-studio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.cjs",
+    "test": "node --test engine.test.cjs content.test.cjs",
+    "verify": "node verify.cjs",
+    "verify:http": "node verify.cjs --http",
+    "check:public": "node publish-check.cjs"
+  },
+  "devDependencies": {
+    "@fontsource/dm-sans": "^5.2.0",
+    "@fontsource/space-grotesk": "^5.2.0",
+    "@playwright/test": "^1.55.0",
+    "ajv": "^8.17.1",
+    "esbuild": "^0.25.0",
+    "lucide": "^0.468.0"
+  }
+}
