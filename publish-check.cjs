@@ -50,7 +50,12 @@ function checkPublic(base = __dirname, exact = false) {
   }
   const html = fs.readFileSync(path.join(base, 'index.html'), 'utf8');
   for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
-    if (!/^https:/.test(match[1])) assert.ok(siteFiles.includes(match[1]), `Unpublished page dependency: ${match[1]}`);
+    if (!/^https:/.test(match[1])) {
+      const dependency = new URL(match[1], 'https://atlas.invalid/');
+      assert.equal(dependency.origin, 'https://atlas.invalid');
+      assert.ok(siteFiles.includes(dependency.pathname.slice(1)), `Unpublished page dependency: ${match[1]}`);
+      assert.ok(!dependency.search || (dependency.searchParams.size === 1 && dependency.searchParams.has('v')), `Unexpected dependency query: ${match[1]}`);
+    }
   }
   console.log(`Public check passed: ${publicFiles.length} allowlisted files; ${Object.keys(sources).length} stable references; no detected credentials, private paths, signed links, or course-result pages.`);
 }

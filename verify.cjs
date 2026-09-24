@@ -189,6 +189,9 @@ async function run() {
       });
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
       url = `http://127.0.0.1:${server.address().port}/claude-atlas/index.html`;
+      const html = fs.readFileSync(path.join(__dirname, '_site', 'index.html'), 'utf8');
+      const dependencies = [...html.matchAll(/(?:src|href)="([^"#]+\.(?:js|css)[^"]*)"/g)].map((match) => new URL(match[1], url).searchParams.get('v'));
+      check(dependencies.length === 12 && dependencies.every((version) => /^[a-f0-9]{16}$/.test(version)) && new Set(dependencies).size === 1, 'Built scripts and CSS share a content-derived cache version');
     }
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
     await context.addInitScript(() => {

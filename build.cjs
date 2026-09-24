@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const esbuild = require('esbuild');
 const { siteFiles } = require('./site-files.cjs');
 
@@ -24,10 +25,15 @@ async function build() {
   if (fs.existsSync(output) && fs.lstatSync(output).isSymbolicLink()) throw new Error('The site output directory must not be a symlink.');
   fs.rmSync(output, { recursive: true, force: true });
   fs.mkdirSync(output, { recursive: true });
+  const revision = createHash('sha256');
   for (const file of siteFiles) {
     fs.mkdirSync(path.dirname(path.join(output, file)), { recursive: true });
     fs.copyFileSync(path.join(base, file), path.join(output, file));
+    revision.update(file).update(fs.readFileSync(path.join(base, file)));
   }
+  const version = revision.digest('hex').slice(0, 16);
+  const html = fs.readFileSync(path.join(output, 'index.html'), 'utf8');
+  fs.writeFileSync(path.join(output, 'index.html'), html.replaceAll('?v=atlas', `?v=${version}`));
   console.log(`Built ${siteFiles.length} local web assets. Open index.html or publish _site.`);
 }
 
