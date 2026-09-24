@@ -95,3 +95,27 @@ test('large Unicode notebook exports fit the recovery limit', () => {
   assert.ok(Buffer.byteLength(serialized) < engine.MAX_PROGRESS_BYTES);
   assert.deepEqual(engine.normalizeProgress(JSON.parse(serialized)).notes, progress.notes);
 });
+
+test('learning signals preserve exact text and mark only the first few distinct authored cues', () => {
+  const text = 'The runtime checks stop_reason: tool_use, then end_turn. The runtime keeps the result.';
+  const cues = [{ text: 'runtime', kind: 'term' }, ...['stop_reason', 'tool_use', 'end_turn'].map((term) => ({ text: term, kind: 'code' }))];
+  const parts = engine.signalSegments(text, cues);
+  assert.equal(parts.map((part) => part.text).join(''), text);
+  assert.deepEqual(parts.filter((part) => part.kind !== 'text').map((part) => part.text), ['runtime', 'stop_reason', 'tool_use']);
+  assert.deepEqual(engine.signalSegments(text, cues, 0), [{ text, kind: 'text' }]);
+});
+
+test('signals prefer full phrases, match literal punctuation, and avoid substrings of identifiers', () => {
+  const cues = [{ text: 'tool', kind: 'term' }, { text: 'tool result', kind: 'term' }, { text: 'CLAUDE.md', kind: 'code' }, { text: 'tool_use', kind: 'code' }];
+  const text = 'Tool result; tool_result; CLAUDE.md; CLAUDExmd; tool_use_extra; tool_use.';
+  const parts = engine.signalSegments(text, cues, 10);
+  assert.equal(parts.map((part) => part.text).join(''), text);
+  assert.deepEqual(parts.filter((part) => part.kind !== 'text').map((part) => part.text), ['Tool result', 'CLAUDE.md', 'tool_use']);
+});
+
+test('signals return text data rather than executable markup', () => {
+  const text = '<img src=x onerror=alert(1)> tool_use & "quoted"';
+  const parts = engine.signalSegments(text, [{ text: 'tool_use', kind: 'code' }]);
+  assert.equal(parts.map((part) => part.text).join(''), text);
+  assert.deepEqual(parts.filter((part) => part.kind !== 'text'), [{ text: 'tool_use', kind: 'code' }]);
+});

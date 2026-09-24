@@ -14,6 +14,9 @@
   };
 
   const sources = {
+    signaling: { name: 'Schneider et al.: A meta-analysis of how signaling affects learning with media', kind: 'Learning research', url: 'https://doi.org/10.1016/j.edurev.2017.11.001', note: 'Educational Research Review, 2018. Research on directing attention to relevant learning material; not a validation of Atlas or a prescribed number of bold terms.' },
+    contrast: { name: 'WCAG: Contrast (Minimum)', kind: 'Accessibility reference', url: 'https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html', note: 'Contrast requirements for readable text: at least 4.5:1 for normal-sized text.' },
+    color: { name: 'WCAG: Use of Color', kind: 'Accessibility reference', url: 'https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html', note: 'Meaning should not rely on color alone. Weight, labels, and structure provide additional cues.' },
     warner: { name: 'Tim Warner: Claude Architect', kind: 'Community course', url: 'https://github.com/timothywarner-org/claude-architect', note: 'The five domain references, teaching notebooks, and hands-on architecture walkthroughs.' },
     larionov: { name: 'Paul Larionov: Claude Certified Architect', kind: 'Community guide', url: 'https://github.com/paullarionov/claude-certified-architect', note: 'A multilingual study guide with domain notes and practical exercises.' },
     pdf: { name: 'Matthew Purcell: practice-set author', kind: 'Author credit', url: 'https://www.linkedin.com/in/purcellmatthew/', note: 'His independently written Foundations and Professional practice sets helped shape the topic selection. This link is his author profile.' },
@@ -149,7 +152,7 @@
       analogy: 'The model places an order; the runtime does the work and hands back the receipt. The model cannot reason about a receipt it never receives.',
       points: ['tool_use: execute permitted client tools and return their results.', 'end_turn: the assistant turn ended; verify application success separately.', 'max_tokens is truncation, pause_turn is resumable, and refusal needs deliberate handling.'],
       example: 'assistant: tool_use { id: "call_7", name: "lookup_order" }\nuser: tool_result { tool_use_id: "call_7", content: ... }\nassistant: ...\nstop_reason: "end_turn"',
-      deep: 'With the raw Messages API, append the complete assistant response and matching tool_result blocks in a user message before the next call. With the Agent SDK, the SDK manages this loop. Keep a budget, turn cap, timeout, and cancellation path; reaching a bound is not successful completion.',
+      deep: 'With the raw Messages API, keep the complete response as an assistant message, then append a separate user message containing the matching tool_result blocks before the next call. With the Agent SDK, the SDK manages this loop. Keep a budget, turn cap, timeout, and cancellation path; reaching a bound is not successful completion.',
       trap: 'Text can appear alongside a tool call. Never stop because the response contains prose or says "done".', recall: 'What do tool_use and end_turn mean, and who returns the tool result?', sources: ['api', 'sdk', 'pdf'], lab: 'loop',
     },
     {
@@ -628,10 +631,65 @@
     instructions: 'The guide mentions /memory for checking loaded files. Current documentation uses /context for loaded memory and /memory for browsing or editing it.',
     schemas: 'The guide emphasizes tool_use with schemas. Current implementation guidance adds strict tool use or JSON structured output; tool_choice alone controls selection.',
   };
+  const learningSignals = {
+    'first-principles': { terms: ['fluent answer', 'dependable application', 'checks', 'Prompt', 'Context', 'Tool', 'Evaluation'] },
+    'prompt-brief': { terms: ['evidence', 'good result', 'goal', 'audience', 'constraints', 'examples', 'specific revision feedback', 'system prompt'] },
+    'verify-output': { terms: ['outside the answer', 'source', 'appropriate expert', 'independent verification', 'Accuracy', 'Completeness', 'Fitness'] },
+    projects: { terms: ['Project', 'artifact', 'research capability', 'instructions', 'knowledge', 'connector permissions'] },
+    knowledge: { terms: ['current evidence', 'Curate', 'review', 'behavioral instructions', 'reference documents', 'version filters'] },
+    'workflow-choice': { terms: ['simplest architecture', 'workflow', 'agent', 'coordinated team', 'Fixed workflow', 'Hybrid', 'independent branches'] },
+    decomposition: { terms: ['focused steps', 'clear input', 'success criterion', 'Verify', 'Parallelize independent work', 'dependent', 'structured output'] },
+    'agent-loop': { terms: ['loop', 'allowed tool', 'structured signal', 'tool call', 'Never stop', 'prose', 'runtime', 'authorized', 'permission', 'application checks'], code: ['stop_reason', 'tool_use', 'end_turn', 'max_tokens', 'pause_turn', 'tool_result', 'tool_use_id', 'lookup_order'] },
+    'sdk-boundary': { terms: ['Messages API', 'client SDK', 'Agent SDK', 'authorization', 'history', 'client tools', 'server tools'] },
+    coordination: { terms: ['coordinator', 'coverage', 'recovery', 'Partition research', 'independent branches', 'strict approval sequence'] },
+    'subagent-context': { terms: ['own context', 'not the parent', 'goal', 'relevant findings', 'constraints', 'actual tools', 'explicit inputs'], code: ['AgentDefinition', 'Agent', 'Task', 'allowedTools'] },
+    hooks: { terms: ['prevent an operation', 'before executing', 'identity checks', 'backend', 'authorization', 'code barrier', 'human approval', 'verified', 'before side effects'], code: ['PreToolUse', 'PostToolUse', 'exit 2', 'idempotency'] },
+    sessions: { terms: ['Resume', 'Fork', 'Start fresh', 'verified summary', 'stale tool results', 'filesystem', 'expiry', 'ownership'], code: ['max_tokens', 'forkSession', 'maxTurns'] },
+    'tool-descriptions': { terms: ['names', 'descriptions', 'schemas', 'boundaries', 'input formats', 'outputs', 'enforcing'] },
+    'tool-choice': { terms: ['selection', 'not authorization', 'dependencies', 'schema conformance'], code: ['tool_choice', 'auto', 'any', 'tool', 'none', 'strict', 'disable_parallel_tool_use'] },
+    'tool-errors': { terms: ['what failed', 'retried', 'what to do next', 'Transient timeout', 'Validation', 'Business refusal', 'Permission failure', 'structured metadata', 'partial results'], code: ['isError', 'is_error', 'tool_result'] },
+    mcp: { terms: ['standard way', 'protocol', 'Tools', 'resources', 'prompts', 'host', 'MCP client', 'direct API', 'Skills'] },
+    'mcp-config': { terms: ['project root', 'user scope', 'credential references', 'stdio', 'Streamable HTTP', 'authorization'], code: ['.mcp.json', '~/.claude.json', '.claude/settings.json', '${ENV_VAR}'] },
+    'code-tools': { terms: ['owning code', 'small change', 'check it', 'focused test', 'unique edit', 'current source'], code: ['Glob', 'Grep', 'Read', 'Write', 'Edit'] },
+    instructions: { terms: ['project instruction file', 'user scope', 'matching files', 'universal facts', 'path rules', 'task skills'], code: ['CLAUDE.md', '.claude/rules/', 'paths', '@path', '/context', '/memory'] },
+    skills: { terms: ['task-specific guidance', 'loaded when needed', 'universal team facts', 'pre-approves', 'validate', 'personal scope'], code: ['context: fork', 'allowed-tools', 'argument-hint', 'SKILL.md', 'description', '$ARGUMENTS'] },
+    permissions: { terms: ['capabilities it needs', 'remove', 'actual toolset', 'pre-approval', 'backend authorization', 'approval gates', 'authenticated human approval'], code: ['AgentDefinition.tools', 'allowedTools', 'disallowed-tools'] },
+    'plan-iterate': { terms: ['directly', 'agreed plan', 'small steps', 'characterization tests', 'fixtures', 'validate', 'acceptance criteria', 'Plan mode'] },
+    ci: { terms: ['non-interactively', 'permissions', 'structured results', 'schema', 'prior findings', 'bare mode'], code: ['claude -p', '--output-format json', '--json-schema', 'structured_output'] },
+    'review-quality': { terms: ['actual defect', 'impact', 'concrete fix', 'rubric', 'examples', 'independent context', 'human merge authority', 'integration pass'] },
+    schemas: { terms: ['allowed shape', 'cannot prove', 'Nullable', 'optional', 'semantic checks', 'source agreement', 'required fields'], code: ['total', 'null', 'strict: true', 'JSON', 'tool_choice', 'Ajv', 'tax_id'] },
+    'validation-retry': { terms: ['bounded repair', 'exactly what failed', 'Structural validation', 'Semantic validation', 'Missing source information', 'deterministic code', 'retry cap'] },
+    batches: { terms: ['timely responses', 'latency-tolerant', 'asynchronous', 'deadline', 'expired', 'client tool', 'only failures'], code: ['Message Batches', 'custom_id'] },
+    context: { terms: ['working space', 'not permanent memory', 'precise case facts', 'summarize resolved', 'active exchange', 'exact amounts', 'identifiers', 'Trim', 'output reservation', 'separate'], code: ['/compact'] },
+    provenance: { terms: ['claim', 'source', 'preserve both', 'conflict', 'evidence excerpt', 'date', 'definitions', 'methods', 'source mappings'] },
+    escalation: { terms: ['explicit request', 'policy exceptions', 'blocked progress', 'handoff', 'verified identity', 'policy gap', 'calibrate', 'sentiment'] },
+    calibration: { terms: ['overall', 'categories and fields', 'confident', 'Calibrate', 'labeled', 'Stratified sampling', 'high-confidence', 'segment', 'error likelihood'] },
+    retrieval: { terms: ['relevant source material', 'context', 'changes often', 'structure-aware', 'exact/keyword', 'semantic retrieval', 'permissions', 'Reranking'] },
+    caching: { terms: ['stable input prefix', 'changing request content', 'generated output', 'cache writes', 'reads', 'usage counters', 'cache entry', 'model-specific size floor'], code: ['cache_creation_input_tokens', 'cache_read_input_tokens'] },
+    models: { terms: ['lowest-cost model', 'quality and latency targets', 'Test', 'effort', 'generation speed', 'model version', 'adaptive thinking', 'Fast mode', 'Temperature 0'] },
+    latency: { terms: ['Streaming', 'Concurrency', 'independent requests', 'quality', 'rate limits', 'time to first useful token', 'total response time', 'image content blocks'] },
+    resilience: { terms: ['Transient failures', 'back off with jitter', 'cap attempts', 'Retry-After', 'idempotency', 'duplicate protection', 'deadlines', 'cancellation'] },
+    evaluations: { terms: ['Define success', 'same rubric', 'inspect failures', 'representative', 'edge', 'adversarial', 'deterministic graders', 'calibrate', 'canary'] },
+    security: { terms: ['untrusted material', 'access controls', 'approval gates', 'least privilege', 'authorization', 'backend', 'distinct environments', 'rotate'] },
+    discovery: { terms: ['users', 'success measure', 'constraints', 'Business objective', 'Functional', 'Non-functional', 'Infrastructure', 'Baseline', 'pilot'] },
+    observability: { terms: ['what entered', 'what it retrieved', 'which tool ran', 'traces', 'metrics', 'Redact', 'quality', 'user impact'] },
+    governance: { terms: ['accountability', 'approved', 'minimize', 'qualified humans', 'sensitivity', 'policy', 'entire data path', 'bias'] },
+    lifecycle: { terms: ['monitoring', 'clear owner', 'Handoff', 'decisions', 'runbooks', 'rollback', 'eval baselines', 'data residency'] },
+    releases: { terms: ['behavior change', 'evals', 'deploy gradually', 'rollback', 'versions', 'acceptance criteria', 'retirement'] },
+    stakeholders: { terms: ['evidence', 'business goal', 'measurable criteria', 'latency', 'quality', 'scope changes', 'sign-off'] },
+    'prompt-debugging': { terms: ['missing context', 'overload', 'shared instructions', 'one variable', 'same examples', 'contradictions', 'decompose', 'verified summary'] },
+    frameworks: { terms: ['state', 'tools', 'orchestrate', 'evaluation', 'security', 'loop', 'failure contract', 'operational burden', 'compliance'] },
+    'responsible-writing': { terms: ['drafts and analysis', 'evidence', 'accountability', 'real customers', 'skills', 'qualified people', 'verify', 'human review'] },
+  };
   lessons.forEach((lesson) => {
     lesson.sources = learningSources[lesson.id] || lesson.sources || ['prompts'];
     lesson.objectives ||= [];
     lesson.examNote = examNotes[lesson.id] || '';
+    const signals = learningSignals[lesson.id];
+    lesson.signals = [
+      ...(signals?.terms || []).map((text) => ({ text, kind: 'term' })),
+      ...(signals?.code || []).map((text) => ({ text, kind: 'code' })),
+    ];
   });
   return { tracks, architectExam, lessons, sources, corrections, supplementMap, glossary, reviewed: '2026-09-23', stages: ['Start simple', 'Build the mental model', 'Make it reliable', 'Think like an architect'] };
 });

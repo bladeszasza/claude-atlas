@@ -10,8 +10,10 @@ async function build() {
   await esbuild.build({ entryPoints: [path.join(base, 'vendor-entry.mjs')], bundle: true, format: 'iife', globalName: 'AtlasVendors', outfile: path.join(assets, 'vendor.js'), minify: true, legalComments: 'eof' });
   for (const [family, weights] of [['dm-sans', [400, 500, 600, 700]], ['space-grotesk', [400, 500, 600, 700]]]) {
     for (const weight of weights) {
-      const name = `${family}-latin-${weight}-normal.woff2`;
-      fs.copyFileSync(path.join(base, 'node_modules', '@fontsource', family, 'files', name), path.join(assets, name));
+      for (const subset of ['latin', 'latin-ext']) {
+        const name = `${family}-${subset}-${weight}-normal.woff2`;
+        fs.copyFileSync(path.join(base, 'node_modules', '@fontsource', family, 'files', name), path.join(assets, name));
+      }
     }
     fs.copyFileSync(path.join(base, 'node_modules', '@fontsource', family, 'LICENSE'), path.join(assets, `${family}-LICENSE.txt`));
   }

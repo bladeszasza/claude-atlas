@@ -88,6 +88,33 @@
       unique.every((answer) => question.correct.includes(answer));
   }
 
+  function signalSegments(text, signals, limit = 3) {
+    const value = String(text ?? '');
+    const cues = new Map((signals || []).filter((signal) =>
+      signal && typeof signal.text === 'string' && signal.text.length > 1 && ['term', 'code'].includes(signal.kind)
+    ).map((signal) => [signal.text.toLowerCase(), signal]));
+    if (!cues.size || limit < 1) return [{ text: value, kind: 'text' }];
+    const alternatives = [...cues.keys()].sort((left, right) => right.length - left.length)
+      .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pattern = new RegExp(alternatives.join('|'), 'giu');
+    const word = /[\p{L}\p{N}_]/u;
+    const parts = [];
+    const used = new Set();
+    let cursor = 0;
+    for (const match of value.matchAll(pattern)) {
+      const key = match[0].toLowerCase();
+      const end = match.index + match[0].length;
+      if (used.has(key) || word.test(value[match.index - 1] || '') || word.test(value[end] || '')) continue;
+      if (match.index > cursor) parts.push({ text: value.slice(cursor, match.index), kind: 'text' });
+      parts.push({ text: match[0], kind: cues.get(key).kind });
+      cursor = end;
+      used.add(key);
+      if (used.size >= limit) break;
+    }
+    if (cursor < value.length) parts.push({ text: value.slice(cursor), kind: 'text' });
+    return parts.length ? parts : [{ text: value, kind: 'text' }];
+  }
+
   function shuffle(items, random = Math.random) {
     const copy = [...items];
     for (let index = copy.length - 1; index > 0; index -= 1) {
@@ -188,5 +215,5 @@
     return length;
   }
 
-  return { STORAGE_KEY, MAX_PROGRESS_BYTES, TRACKS, freshProgress, normalizeProgress, normalizeSelection, hasAnswer, restoreDeadline, grade, shuffle, weightedSample, scenarioSample, localDay, touchDay, completeLesson, recordAnswer, scheduleReview, domainStats, remainingSeconds, streak };
+  return { STORAGE_KEY, MAX_PROGRESS_BYTES, TRACKS, freshProgress, normalizeProgress, normalizeSelection, hasAnswer, restoreDeadline, grade, signalSegments, shuffle, weightedSample, scenarioSample, localDay, touchDay, completeLesson, recordAnswer, scheduleReview, domainStats, remainingSeconds, streak };
 });

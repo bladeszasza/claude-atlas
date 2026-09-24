@@ -1,14 +1,28 @@
 (function () {
   'use strict';
-  const content = window.AtlasContent;
+  const i18n = window.AtlasI18n;
+  let language = 'en';
+  try {
+    const savedLanguage = localStorage.getItem('claude-atlas-language');
+    if (i18n.languages.includes(savedLanguage)) language = savedLanguage;
+  } catch (error) {}
+  let locale = window.AtlasLocales?.[language];
+  let content = i18n.localizeContent(window.AtlasContent, locale);
   const engine = window.AtlasEngine;
-  const bank = window.AtlasQuestions;
+  let bank = i18n.localizeQuestions(window.AtlasQuestions, locale);
+  const translate = (text) => i18n.translate(text, locale);
   const main = document.getElementById('main');
   const audio = new window.AtlasAudio();
   const icon = (name, className = '') => `<i data-lucide="${name}"${className ? ` class="${className}"` : ''}></i>`;
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
   const lessonById = (id) => content.lessons.find((lesson) => lesson.id === id);
   const questionById = (id) => bank.find((question) => question.id === id);
+  const studyText = (value, lesson) => engine.signalSegments(value, lesson?.signals).map((part) => {
+    const text = escape(part.text);
+    if (part.kind === 'code') return `<code class="concept-code">${text}</code>`;
+    if (part.kind === 'term') return `<strong class="concept-term">${text}</strong>`;
+    return text;
+  }).join('');
   const trackConfig = () => content.tracks[progress.track];
   const trackLessons = () => content.lessons.filter((lesson) => lesson.domains[progress.track]).sort((left, right) => left.stage - right.stage);
   const trackBank = () => bank.filter((question) => question.domains[progress.track]);
@@ -50,16 +64,49 @@
     window.AtlasVendors.createIcons({ icons: window.AtlasVendors.icons, attrs: { 'aria-hidden': 'true' } });
   }
 
+  function changeLanguage(nextLanguage) {
+    if (!i18n.languages.includes(nextLanguage)) return;
+    const inputs = view === 'labs' ? [...main.querySelectorAll('input[id],textarea[id],select[id],select[data-config-index]')].map((element) => ({ id: element.id, config: element.dataset.configIndex, value: element.value, checked: element.checked, defaultText: element.type === 'text' && element.value === translate(element.defaultValue) })) : [];
+    const labResult = view === 'labs' ? labState.output : null;
+    const architectureChoice = main.querySelector('[data-action="architecture-answer"].selected')?.dataset.index;
+    language = nextLanguage;
+    locale = window.AtlasLocales?.[language];
+    content = i18n.localizeContent(window.AtlasContent, locale);
+    bank = i18n.localizeQuestions(window.AtlasQuestions, locale);
+    if (quiz) quiz.questions = quiz.questions.map((question) => questionById(question.id));
+    if (recallQueue) recallQueue = recallQueue.map((lesson) => lessonById(lesson.id));
+    try { localStorage.setItem('claude-atlas-language', language); }
+    catch (error) { toast('Language changed for this session. Browser storage is unavailable.'); }
+    document.documentElement.lang = language;
+    render();
+    for (const input of inputs) {
+      const element = input.id ? document.getElementById(input.id) : main.querySelector(`[data-config-index="${input.config}"]`);
+      if (element && !input.defaultText) { element.value = input.value; element.checked = input.checked; }
+    }
+    if (view === 'labs') updateLab();
+    if (viewId === 'schema' && labResult && /^(Layer [123] failed|All three local checks passed)/.test(labResult.title)) validateJson();
+    else if (labResult && ['schema', 'architecture', 'config'].includes(viewId)) labOutput(labResult.title, labResult.text, labResult.failed);
+    if (architectureChoice !== undefined) main.querySelector(`[data-action="architecture-answer"][data-index="${architectureChoice}"]`)?.classList.add('selected');
+    i18n.apply(document.body, locale);
+    updateAudioUI();
+    document.title = `${view === 'lesson' ? lessonById(viewId).title : translate(document.getElementById('view-name').textContent)} | Atlas`;
+    document.getElementById('language-select').focus({ preventScroll: true });
+  }
+
   function save() {
+    let persisted = true;
     try {
       localStorage.setItem(engine.STORAGE_KEY, JSON.stringify(progress));
+      storageProblem = '';
     } catch (error) {
+      persisted = false;
       if (!storageProblem) {
         storageProblem = 'Browser storage is unavailable. Export progress to keep a backup.';
         toast(storageProblem);
       }
     }
     updateSidebar();
+    return persisted;
   }
 
   function toast(message) {
@@ -106,7 +153,7 @@
       if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
     setDrawer(false);
-    document.title = `${view === 'lesson' ? lessonById(viewId).title : labels[view]} | Atlas`;
+    document.title = `${view === 'lesson' ? lessonById(viewId).title : translate(labels[view])} | Atlas`;
     render();
     window.scrollTo(0, 0);
     main.focus({ preventScroll: true });
@@ -120,8 +167,24 @@
     if (view === 'lesson') {
       const note = document.getElementById('lesson-note');
       if (note) note.value = progress.notes[viewId] || '';
+      document.getElementById('note-status').textContent = storageProblem ? 'In memory only; export a backup' : 'Saved on this browser';
     }
-    if (view === 'labs') updateLab();
+    if (view === 'notebook') {
+      main.querySelectorAll('.notebook-entry').forEach((entry) => {
+        const lessonId = entry.querySelector('h3 a').getAttribute('href').split('/')[1];
+        if (!progress.notes[lessonId]) entry.querySelector('p').textContent = translate('Bookmarked. Add your own explanation inside the lesson.');
+      });
+    }
+    if (view === 'progress') {
+      progress.sessions.filter((session) => session.track === progress.track).slice(-8).reverse().forEach((session, index) => {
+        const cell = main.querySelectorAll('.mapping-table tbody tr')[index]?.firstElementChild;
+        if (cell) cell.textContent = new Date(session.at).toLocaleDateString(language);
+      });
+    }
+    if (view === 'labs') {
+      if (viewId === 'prompt') main.querySelectorAll('input[type="text"]').forEach((input) => { input.value = translate(input.defaultValue); });
+      updateLab();
+    }
   }
 
   function heading(eyebrow, title, subtitle, actions = '') {
@@ -147,14 +210,14 @@
     const selected = stageFilter === 'all' ? lessons : lessons.filter((lesson) => lesson.stage === Number(stageFilter));
     return heading('YOUR NEXT CHAPTER', 'Make the concepts click.', trackConfig().description, `<span class="pill">${icon('graduation-cap')}${escape(trackConfig().code)}</span><a class="text-link" href="#progress">Your progress ${icon('arrow-up-right')}</a>`) +
       `<div class="progress-summary"><div>${icon('book-open')}<strong>${complete}<span class="muted"> / ${lessons.length}</span></strong> lessons complete</div><div class="summary-bar" aria-label="${complete} of ${lessons.length} lessons complete"><span style="width:${complete / lessons.length * 100}%"></span></div><div>${icon('target')}<strong>${accuracy === null ? 'Not yet tested' : `${accuracy}%`}</strong>${accuracy === null ? '' : 'first-attempt accuracy'}</div><div>${icon('headphones')}<strong>${Math.floor(progress.focusMinutes)}</strong> focus minutes</div></div>
-      <div class="study-grid"><section class="next-lesson"><p class="eyebrow"><span class="status-dot"></span>${complete ? 'CONTINUE YOUR PATH' : 'A GOOD PLACE TO BEGIN'}<span class="small">${next.minutes} MIN</span></p><h2>${escape(next.title)}</h2><p>${escape(next.simple)}</p><div class="button-row"><a class="button primary" href="#lesson/${next.id}">${complete ? 'Continue learning' : 'Start this lesson'} ${icon('arrow-right')}</a><a class="button tertiary" href="#practice">Take a quick check ${icon('arrow-up-right')}</a></div></section><section class="focus-scene"><img src="assets/alpine.jpg" alt="Sunlit mountain peaks above a green alpine valley" fetchpriority="high"><div class="scene-top"><span>THE FOCUS ROOM</span>${icon('headphones')}</div><div class="scene-bottom"><h3>Find your quiet.</h3><p>25 minutes. One small step.</p><button class="scene-button" data-action="start-focus">${icon('play')} Begin a session</button></div></section></div>
+      <div class="study-grid"><section class="next-lesson"><p class="eyebrow"><span class="status-dot"></span>${complete ? 'CONTINUE YOUR PATH' : 'A GOOD PLACE TO BEGIN'}<span class="small">${next.minutes} MIN</span></p><h2>${escape(next.title)}</h2><p>${studyText(next.simple, next)}</p><div class="button-row"><a class="button primary" href="#lesson/${next.id}">${complete ? 'Continue learning' : 'Start this lesson'} ${icon('arrow-right')}</a><a class="button tertiary" href="#practice">Take a quick check ${icon('arrow-up-right')}</a></div></section><section class="focus-scene"><img src="assets/alpine.jpg" alt="Sunlit mountain peaks above a green alpine valley" fetchpriority="high"><div class="scene-top"><span>THE FOCUS ROOM</span>${icon('headphones')}</div><div class="scene-bottom"><h3>Find your quiet.</h3><p>25 minutes. One small step.</p><button class="scene-button" data-action="start-focus">${icon('play')} Begin a session</button></div></section></div>
       <div class="section-heading"><h2>Your learning path</h2><span class="small">${lessons.length} lessons &middot; ${trackBank().length} practice questions</span></div>
       <div class="filters" role="group" aria-label="Learning stage"><button class="filter-tab ${stageFilter === 'all' ? 'active' : ''}" data-action="filter-stage" data-value="all" aria-pressed="${stageFilter === 'all'}">The whole path</button>${content.stages.map((stage, index) => `<button class="filter-tab ${stageFilter === String(index) ? 'active' : ''}" data-action="filter-stage" data-value="${index}" aria-pressed="${stageFilter === String(index)}">${escape(stage)}</button>`).join('')}</div>
       ${content.stages.map((stage, index) => {
         const group = selected.filter((lesson) => lesson.stage === index);
         return group.length ? `<section class="lesson-group"><div class="group-label"><span class="group-number">${index + 1}</span><strong>${escape(stage)}</strong><span class="small">${group.filter((lesson) => progress.completed.includes(lesson.id)).length} / ${group.length}</span></div><div class="lesson-grid">${group.map(lessonCard).join('')}</div></section>` : '';
       }).join('')}
-      <div class="section-heading"><h2>${progress.track === 'architect' ? 'The blueprint, at a glance' : 'Along this side trail'}</h2><a class="text-link" href="#library">Source notes ${icon('arrow-up-right')}</a></div><div class="domain-rail" style="grid-template-columns:repeat(${Math.min(5, trackConfig().domains.length)},minmax(0,1fr))">${trackConfig().domains.map((domain) => `<article class="${domain.color}"><strong>${domain.weight}%</strong><p>${escape(domain.name)}</p></article>`).join('')}</div><p class="lesson-count-line">${progress.track === 'architect' ? 'Domain weights from the official Architect Foundations guide.' : 'Study emphasis adapted from the credited community practice material.'}</p>`;
+      <div class="section-heading"><h2>${progress.track === 'architect' ? 'The blueprint, at a glance' : 'Along this side trail'}</h2><a class="text-link" href="#library">Source notes ${icon('arrow-up-right')}</a></div><div class="domain-rail" style="--domain-columns:${Math.min(5, trackConfig().domains.length)}">${trackConfig().domains.map((domain) => `<article class="${domain.color}"><strong>${domain.weight}%</strong><p>${escape(domain.name)}</p></article>`).join('')}</div><p class="lesson-count-line">${progress.track === 'architect' ? 'Domain weights from the official Architect Foundations guide.' : 'Study emphasis adapted from the credited community practice material.'}</p>`;
   }
 
   function sourceLink(id) {
@@ -176,9 +239,9 @@
     const questions = bank.filter((question) => question.lesson === lesson.id);
     let article;
     if (lessonTab === 'simple') {
-      article = `<p class="lesson-lead">${escape(lesson.simple)}</p><div class="analogy"><strong>${icon('lightbulb')}A mental model</strong>${escape(lesson.analogy)}</div><section class="lesson-section"><h2>Three things to keep</h2><ol class="concept-list">${lesson.points.map((point) => `<li>${escape(point)}</li>`).join('')}</ol></section><div class="button-row"><button class="button primary" data-action="lesson-tab" data-value="deeper">Go one level deeper ${icon('arrow-right')}</button>${lesson.lab ? `<a class="button tertiary" href="#labs/${lesson.lab}">Try the lab ${icon('flask-conical')}</a>` : ''}</div>`;
+      article = `<p class="lesson-lead">${studyText(lesson.simple, lesson)}</p><div class="analogy"><strong>${icon('lightbulb')}A mental model</strong>${escape(lesson.analogy)}</div><section class="lesson-section"><h2>Three things to keep</h2><ol class="concept-list">${lesson.points.map((point) => `<li>${studyText(point, lesson)}</li>`).join('')}</ol></section><div class="button-row"><button class="button primary" data-action="lesson-tab" data-value="deeper">Go one level deeper ${icon('arrow-right')}</button>${lesson.lab ? `<a class="button tertiary" href="#labs/${lesson.lab}">Try the lab ${icon('flask-conical')}</a>` : ''}</div>`;
     } else if (lessonTab === 'deeper') {
-      article = `<section class="lesson-section"><h2>Put it into practice</h2><div class="code-sample"><p class="eyebrow">WORKED EXAMPLE</p><pre>${escape(lesson.example)}</pre></div></section><section class="lesson-section"><h2>Where it gets interesting</h2><p>${escape(lesson.deep)}</p></section><div class="trap-note"><strong>${icon('info')}KEEP THIS DISTINCTION</strong>${escape(lesson.trap)}</div>${lesson.examNote ? `<details class="guide-note"><summary>Exam wording / current tooling</summary><p>${escape(lesson.examNote)}</p>${sourceLink('examGuide')}${sourceLink(lesson.sources[0])}</details>` : ''}<button class="button primary" data-action="lesson-tab" data-value="check">Check your understanding ${icon('arrow-right')}</button>`;
+      article = `<section class="lesson-section"><h2>Put it into practice</h2><div class="code-sample"><p class="eyebrow">WORKED EXAMPLE</p><pre>${escape(lesson.example)}</pre></div></section><section class="lesson-section"><h2>Where it gets interesting</h2><p>${studyText(lesson.deep, lesson)}</p></section><div class="trap-note"><strong>${icon('info')}KEEP THIS DISTINCTION</strong>${studyText(lesson.trap, lesson)}</div>${lesson.examNote ? `<details class="guide-note"><summary>Exam wording / current tooling</summary><p>${studyText(lesson.examNote, lesson)}</p>${sourceLink('examGuide')}${sourceLink(lesson.sources[0])}</details>` : ''}<button class="button primary" data-action="lesson-tab" data-value="check">Check your understanding ${icon('arrow-right')}</button>`;
     } else {
       if (!checkpoint || checkpoint.lesson !== lesson.id) checkpoint = { lesson: lesson.id, index: 0, selected: [], checked: false, correct: false, passed: false };
       const question = questions[checkpoint.index % questions.length];
@@ -188,7 +251,8 @@
   }
 
   function questionMarkup(question, selected, revealed, exam, purpose = 'quiz') {
-    const scenario = window.AtlasScenarios.find((item) => item.id === question.caseId);
+    const originalScenario = window.AtlasScenarios.find((item) => item.id === question.caseId);
+    const scenario = originalScenario && { ...originalScenario, ...(locale?.cases?.[originalScenario.id] || {}) };
     const correct = engine.grade(question, selected);
     const needed = question.kind === 'matching' ? question.correct.length : question.correct.length;
     const answerReady = question.kind === 'matching' ? question.items.every((item, index) => Number.isInteger(selected[index]) && selected[index] >= 0) : selected.length === needed;
@@ -198,7 +262,7 @@
       return `<button class="answer-option${chosen ? ' selected' : ''}${revealed && isCorrect ? ' correct' : ''}${revealed && chosen && !isCorrect ? ' wrong' : ''}" data-action="select-answer" data-index="${index}" data-purpose="${purpose}" aria-pressed="${chosen}" ${revealed ? 'disabled' : ''}><span class="answer-letter">${String.fromCharCode(65 + index)}</span><span>${escape(option)}</span>${revealed && isCorrect ? icon('check', 'option-status') : revealed && chosen ? icon('x', 'option-status') : ''}</button>`;
     }).join('')}</div>`;
     const key = question.kind === 'matching' ? question.correct.map((answer, index) => `${index + 1}: ${question.options[answer]}`).join('; ') : question.correct.map((index) => String.fromCharCode(65 + index)).join(', ');
-    const feedback = revealed ? `<div class="answer-feedback ${correct ? '' : 'incorrect'}" tabindex="-1" role="status"><h4>${correct ? 'That is the right distinction.' : 'A useful one to revisit.'}</h4><p><strong>Answer: ${escape(key)}</strong></p><p>${escape(question.rationale)}</p>${purpose === 'checkpoint' ? `<button class="text-link" style="border:0;background:none;padding:0" data-action="next-checkpoint">Another check ${icon('arrow-right')}</button>` : `<a class="text-link" href="#lesson/${question.lesson}">Revisit the concept ${icon('arrow-up-right')}</a>`}<details class="answer-sources"><summary>Go to the source</summary>${lessonById(question.lesson).sources.map(sourceLink).join('')}</details></div>` : '';
+    const feedback = revealed ? `<div class="answer-feedback ${correct ? '' : 'incorrect'}" tabindex="-1" role="status"><h4>${correct ? 'That is the right distinction.' : 'A useful one to revisit.'}</h4><p><strong>Answer: ${escape(key)}</strong></p><p>${studyText(question.rationale, lessonById(question.lesson))}</p>${purpose === 'checkpoint' ? `<button class="text-link" style="border:0;background:none;padding:0" data-action="next-checkpoint">Another check ${icon('arrow-right')}</button>` : `<a class="text-link" href="#lesson/${question.lesson}">Revisit the concept ${icon('arrow-up-right')}</a>`}<details class="answer-sources"><summary>Go to the source</summary>${lessonById(question.lesson).sources.map(sourceLink).join('')}</details></div>` : '';
     const controls = exam ? `<p class="small">${question.kind === 'matching' ? 'Choose an option for each scenario.' : `Select ${needed === 1 ? 'one answer' : `${needed} answers`}.`} Answers are graded when the session ends.</p>` : `<button class="button primary" data-action="check-answer" data-purpose="${purpose}" ${revealed || !answerReady ? 'disabled' : ''}>Check answer ${icon('arrow-right')}</button>`;
     return `<section class="question-box" data-question-id="${question.id}"><div class="question-eyebrow"><span>${escape(question.scenario.toUpperCase())}</span><span>${question.kind === 'matching' ? 'MATCH EACH' : `SELECT ${needed === 1 ? 'ONE' : needed}`}</span></div>${scenario ? `<details class="case-brief" open><summary>${escape(scenario.title)}</summary><p>${escape(scenario.brief)}</p></details>` : ''}<h3>${escape(question.stem)}</h3>${options}${controls}${feedback}</section>`;
   }
@@ -238,7 +302,7 @@
     if (mode === 'missed') pool = pool.filter((question) => progress.answers[question.id] && !progress.answers[question.id].correct);
     const count = scenario ? pool.length : mode === 'exam' ? trackConfig().target : practiceCount;
     const rehearsal = mode === 'exam' && progress.track === 'architect';
-    const questions = rehearsal ? engine.scenarioSample(window.AtlasScenarios) : mode === 'exam' ? engine.weightedSample(pool, progress.track, trackConfig().domains, count) : engine.shuffle(pool).slice(0, count);
+    const questions = (rehearsal ? engine.scenarioSample(window.AtlasScenarios) : mode === 'exam' ? engine.weightedSample(pool, progress.track, trackConfig().domains, count) : engine.shuffle(pool).slice(0, count)).map((question) => questionById(question.id));
     if (!questions.length) return toast('No questions match this selection. Choose another domain or mode.');
     quiz = { track: progress.track, mode, rehearsal, questions, index: 0, selections: {}, checked: {}, flags: [], startedAt: Date.now(), deadline: mode === 'exam' ? Date.now() + 120 * 60000 : null, finished: false };
     persistQuiz();
@@ -340,7 +404,7 @@
       const correct = engine.grade(question, quiz.selections[question.id] || []);
       const selection = quiz.selections[question.id] || [];
       const format = (answers) => question.kind === 'matching' ? question.items.map((item, itemIndex) => `${itemIndex + 1}: ${question.options[answers[itemIndex]] || 'unanswered'}`).join('; ') : answers.length ? answers.map((answer) => `${String.fromCharCode(65 + answer)}. ${question.options[answer]}`).join(' / ') : 'Unanswered';
-      return `<details class="result-row ${correct ? '' : 'missed'}"><summary>${icon(correct ? 'circle-check' : 'x')}<span>${index + 1}. ${escape(question.stem)}</span></summary><p><strong>Your answer:</strong> ${escape(format(selection))}</p><p><strong>Correct answer:</strong> ${escape(format(question.correct))}</p><p>${escape(question.rationale)}</p><a class="text-link" href="#lesson/${question.lesson}">Revisit ${escape(lessonById(question.lesson).title)} ${icon('arrow-up-right')}</a></details>`;
+      return `<details class="result-row ${correct ? '' : 'missed'}"><summary>${icon(correct ? 'circle-check' : 'x')}<span>${index + 1}. ${escape(question.stem)}</span></summary><p><strong>Your answer:</strong> ${escape(format(selection))}</p><p><strong>Correct answer:</strong> ${escape(format(question.correct))}</p><p>${studyText(question.rationale, lessonById(question.lesson))}</p><a class="text-link" href="#lesson/${question.lesson}">Revisit ${escape(lessonById(question.lesson).title)} ${icon('arrow-up-right')}</a></details>`;
     }).join('')}`;
   }
 
@@ -348,7 +412,7 @@
     if (!recallQueue) recallQueue = trackLessons().filter((lesson) => !progress.reviews[lesson.id] || progress.reviews[lesson.id].due <= Date.now()).sort((left, right) => (progress.reviews[left.id]?.due || 0) - (progress.reviews[right.id]?.due || 0));
     const lesson = recallQueue[recallIndex];
     if (!lesson) return heading('A LITTLE SPACE HELPS IT STICK', 'Daily recall', 'Retrieve the idea before returning to the explanation.') + `<div class="empty-state">${icon('check-check')}<h2>${recallIndex ? 'Your recall session is complete.' : 'Nothing due right now.'}</h2><p>Scheduled cards return when they are due. A practice scenario can test the same ideas in a different setting.</p><div class="button-row" style="justify-content:center"><button class="button secondary" data-action="recall-refresh">Check due cards</button><a class="button primary" href="#practice">Go to practice</a></div></div>`;
-    return heading('A LITTLE SPACE HELPS IT STICK', 'Daily recall', 'One question. Say the idea in your own words, then check.') + `<div class="recall-workspace"><div class="recall-toolbar"><span>${recallIndex + 1} / ${recallQueue.length} this session</span><span>${escape(domainFor(lesson).name)}</span></div><section class="flashcard ${recallRevealed ? 'revealed' : ''}" aria-label="Recall card"><div id="recall-face" tabindex="-1"><p class="eyebrow">${recallRevealed ? 'THE ANCHOR IDEA' : 'RECALL BEFORE REVEAL'}</p>${recallRevealed ? `<p>${escape(lesson.simple)}</p><p class="small">${escape(lesson.trap)}</p>` : `<h2>${escape(lesson.recall)}</h2>`}</div><button class="text-link" style="justify-content:center;border:0;background:none" data-action="flip-card" aria-controls="recall-face">${icon('repeat-2')}${recallRevealed ? 'Return to the question' : 'Reveal the explanation'}</button></section>${recallRevealed ? `<div class="recall-ratings">${[['again', 'Again'], ['hard', 'Hard'], ['good', 'Got it'], ['easy', 'Easy']].map(([rating, label]) => {
+    return heading('A LITTLE SPACE HELPS IT STICK', 'Daily recall', 'One question. Say the idea in your own words, then check.') + `<div class="recall-workspace"><div class="recall-toolbar"><span>${recallIndex + 1} / ${recallQueue.length} this session</span><span>${escape(domainFor(lesson).name)}</span></div><section class="flashcard ${recallRevealed ? 'revealed' : ''}" aria-label="Recall card"><div id="recall-face" tabindex="-1"><p class="eyebrow">${recallRevealed ? 'THE ANCHOR IDEA' : 'RECALL BEFORE REVEAL'}</p>${recallRevealed ? `<p>${studyText(lesson.simple, lesson)}</p><p class="small">${studyText(lesson.trap, lesson)}</p>` : `<h2>${escape(lesson.recall)}</h2>`}</div><button class="text-link" style="justify-content:center;border:0;background:none" data-action="flip-card" aria-controls="recall-face">${icon('repeat-2')}${recallRevealed ? 'Return to the question' : 'Reveal the explanation'}</button></section>${recallRevealed ? `<div class="recall-ratings">${[['again', 'Again'], ['hard', 'Hard'], ['good', 'Got it'], ['easy', 'Easy']].map(([rating, label]) => {
       const schedule = engine.scheduleReview(progress.reviews[lesson.id], rating);
       return `<button class="rating" data-action="rate-card" data-value="${rating}">${label}<small>${rating === 'again' ? '5 minutes' : `${schedule.interval} day${schedule.interval === 1 ? '' : 's'}`}</small></button>`;
     }).join('')}</div><div class="button-row" style="justify-content:center;margin-top:22px"><a class="text-link" href="#lesson/${lesson.id}">Revisit the lesson ${icon('arrow-up-right')}</a></div>` : ''}</div>`;
@@ -395,6 +459,7 @@
         ['Keep the reference open', entries.filter(([, source]) => ['Official documentation', 'Official specification', 'Official SDK', 'Official examples', 'Anthropic engineering'].includes(source.kind))],
         ['The certification desk', entries.filter(([, source]) => ['Official certification', 'Official exam guide', 'Official policy', 'Official terms', 'Exam scheduling', 'Official courses & exam portal'].includes(source.kind))],
         ['The materials behind the room', entries.filter(([, source]) => ['Visual credit', 'Photo credit', 'Implementation reference'].includes(source.kind))],
+        ['Learning design', entries.filter(([, source]) => ['Learning research', 'Accessibility reference'].includes(source.kind))],
       ];
       body = `<p class="field-intro">Atlas takes these ideas for a walk: small explanations, hands-on experiments, and a quieter place to practice. The full courses and references live with their authors.</p>${groups.map(([title, sources]) => `<div class="section-heading"><h2>${title}</h2></div><div class="source-grid">${sources.map(([id, source]) => `<article class="source-card" id="source-${id}"><p class="eyebrow">${escape(source.kind.toUpperCase())}</p><h3>${escape(source.name)}</h3><p>${escape(source.note)}</p><div class="button-row"><a class="text-link" href="${source.url}" target="_blank" rel="noopener noreferrer">Open resource ${icon('arrow-up-right')}</a>${source.accessUrl ? `<a class="text-link" href="${source.accessUrl}" target="_blank" rel="noopener noreferrer">IBM Learning access ${icon('arrow-up-right')}</a>` : ''}</div></article>`).join('')}</div>`).join('')}<details class="guide-note"><summary>A note on this little room</summary><p>Atlas is a community study companion. Lessons and case studies are independently written; original courses, exam materials, and trademarks stay with their owners.</p><p>Soundscapes are generated here using Web Audio. Brain.fm opens as a separate service. Keep the volume comfortable.</p><p>Notes and progress stay in this browser. Export a backup before clearing site data or changing devices. GitHub Pages handles delivery of the public site; external resources follow their own privacy terms.</p></details>`;
     }
@@ -439,14 +504,16 @@
     } else if (lab.id === 'calibration') {
       stage = `<p>900 typed invoices are <strong>99% accurate</strong>. The smaller group contains 100 handwritten invoices.</p><div class="lab-controls"><label for="segment-accuracy">Handwritten accuracy</label><input id="segment-accuracy" type="range" min="0" max="100" value="79"><output id="segment-value">79%</output></div><div class="metrics" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="metric"><strong id="aggregate-value">97%</strong><span>Overall accuracy</span></div><div class="metric"><strong id="segment-errors">21</strong><span>Errors in the handwritten segment</span></div></div><div id="lab-output" class="sim-output" role="status"></div>`;
     }
-    return heading('LEARN IT BY CHANGING SOMETHING', 'The scenario lab', 'A small experiment makes the mechanism easier to remember.') + `<div class="lab-tabs" role="group" aria-label="Interactive lab">${labs.map((item) => `<button class="${lab.id === item.id ? 'active' : ''}" data-action="open-lab" data-value="${item.id}" aria-pressed="${lab.id === item.id}">${icon(item.icon)}${item.title}</button>`).join('')}</div><div class="lab-layout"><section class="lab-stage"><span class="simulation-tag">LOCAL SIMULATION &middot; NO AI REQUESTS</span><h2>${lab.title}</h2><p>${lab.description}</p>${stage}</section><aside class="lab-aside"><h3>The concept behind the control</h3><p>${escape(lesson.simple)}</p><div class="trap-note"><strong>The important boundary</strong>${escape(lesson.trap)}</div><a class="text-link" href="#lesson/${lesson.id}">Open the full lesson ${icon('arrow-up-right')}</a></aside></div>`;
+    return heading('LEARN IT BY CHANGING SOMETHING', 'The scenario lab', 'A small experiment makes the mechanism easier to remember.') + `<div class="lab-tabs" role="group" aria-label="Interactive lab">${labs.map((item) => `<button class="${lab.id === item.id ? 'active' : ''}" data-action="open-lab" data-value="${item.id}" aria-pressed="${lab.id === item.id}">${icon(item.icon)}${item.title}</button>`).join('')}</div><div class="lab-layout"><section class="lab-stage"><span class="simulation-tag">LOCAL SIMULATION &middot; NO AI REQUESTS</span><h2>${lab.title}</h2><p>${lab.description}</p>${stage}</section><aside class="lab-aside"><h3>The concept behind the control</h3><p>${studyText(lesson.simple, lesson)}</p><div class="trap-note"><strong>The important boundary</strong>${studyText(lesson.trap, lesson)}</div><a class="text-link" href="#lesson/${lesson.id}">Open the full lesson ${icon('arrow-up-right')}</a></aside></div>`;
   }
 
   function labOutput(title, text, failed = false) {
     const output = document.getElementById('lab-output');
     if (!output) return;
+    labState.output = { title, text, failed };
     output.classList.toggle('failed', failed);
-    output.innerHTML = `<strong>${escape(title)}</strong><p>${escape(text)}</p>`;
+    const lesson = lessonById(labs.find((lab) => lab.id === viewId)?.lesson);
+    output.innerHTML = `<strong>${escape(translate(title))}</strong><p>${studyText(translate(text), lesson)}</p>`;
   }
 
   function updateLab() {
@@ -479,7 +546,7 @@
       const colors = ['#77a75e', '#6b97b5', '#d29878', '#d2bf68'];
       document.getElementById('context-value').textContent = turns;
       document.getElementById('context-meter').innerHTML = amounts.map((amount, index) => `<span style="width:${amount / Math.max(budget, total) * 100}%;background:${colors[index]}" title="${amount} illustrative tokens"></span>`).join('');
-      labOutput(`${total.toLocaleString()} / ${budget.toLocaleString()} illustrative tokens`, `${total > budget ? 'This example exceeds its budget. Trim payloads and summarize resolved work. ' : 'The example fits the budget. Fitting does not itself prove good attention. '}${summarize && !pin ? 'Exact identifiers and amounts remain at risk in a lossy summary.' : pin ? 'Exact case facts are preserved separately from summaries.' : 'Keep precise case facts separate before compressing history.'} Counts are a teaching model, not a real tokenizer.`, total > budget || (summarize && !pin));
+      labOutput(`${total.toLocaleString(language)} / ${budget.toLocaleString(language)} illustrative tokens`, [total > budget ? 'This example exceeds its budget. Trim payloads and summarize resolved work.' : 'The example fits the budget. Fitting does not itself prove good attention.', summarize && !pin ? 'Exact identifiers and amounts remain at risk in a lossy summary.' : pin ? 'Exact case facts are preserved separately from summaries.' : 'Keep precise case facts separate before compressing history.', 'Counts are a teaching model, not a real tokenizer.'].map(translate).join(' '), total > budget || (summarize && !pin));
     } else if (viewId === 'cache') {
       labState.blocks ||= [
         { name: 'Request ID & timestamp', tokens: 80, dynamic: true },
@@ -490,12 +557,12 @@
       let stable = 0;
       for (const block of labState.blocks) { if (block.dynamic) break; stable += block.tokens; }
       document.getElementById('cache-blocks').innerHTML = labState.blocks.map((block, index) => `<div class="cache-block ${block.dynamic ? 'dynamic' : ''}"><span class="block-num">0${index + 1}</span><span class="block-name">${block.name}<br><small>${block.tokens.toLocaleString()} illustrative tokens &middot; ${block.dynamic ? 'changes every request' : 'stable'}</small></span><button class="icon-button" data-action="move-cache" data-index="${index}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Move ${block.name} up">${icon('arrow-up')}</button><button class="icon-button" data-action="move-cache" data-index="${index}" data-direction="1" ${index === labState.blocks.length - 1 ? 'disabled' : ''} aria-label="Move ${block.name} down">${icon('arrow-down')}</button></div>`).join('');
-      labOutput(`${stable.toLocaleString()} stable prefix tokens`, `${stable ? 'These stable tokens precede the first changing block and can be candidates for reuse. ' : 'The first block changes, so none of the later static material forms a matching prefix. '}Actual caching also needs supported cache configuration, matching content, the model-specific size floor, and an unexpired cache entry.`, stable === 0);
+      labOutput(`${stable.toLocaleString(language)} stable prefix tokens`, [stable ? 'These stable tokens precede the first changing block and can be candidates for reuse.' : 'The first block changes, so none of the later static material forms a matching prefix.', 'Actual caching also needs supported cache configuration, matching content, the model-specific size floor, and an unexpired cache entry.'].map(translate).join(' '), stable === 0);
       refreshIcons();
     } else if (viewId === 'prompt') {
       const values = ['brief-task', 'brief-audience', 'brief-evidence', 'brief-format', 'brief-missing'].map((id) => document.getElementById(id).value.trim());
       const labels = ['Task', 'Audience', 'Evidence', 'Output', 'Missing information'];
-      document.getElementById('brief-preview').textContent = values.map((value, index) => `${labels[index]}: ${value || '[not specified]'}`).join('\n\n');
+      document.getElementById('brief-preview').textContent = values.map((value, index) => `${translate(labels[index])}: ${value || translate('[not specified]')}`).join('\n\n');
       const defined = values.filter(Boolean).length;
       labOutput(`${defined} / 5 brief components specified`, 'This is a deterministic template, not an AI quality grade. Clear inputs reduce ambiguity; test the resulting output against evidence and your rubric.');
     } else if (viewId === 'calibration') {
@@ -526,14 +593,14 @@
     const validator = new window.AtlasVendors.Ajv({ allErrors: true });
     const schema = { type: 'object', properties: { total: { type: 'number', minimum: 0 }, line_items: { type: 'array', minItems: 1, items: { type: 'number', minimum: 0 } }, tax_id: { type: ['string', 'null'] } }, required: ['total', 'line_items', 'tax_id'], additionalProperties: false };
     if (!validator.validate(schema, payload)) {
-      labOutput('Layer 2 failed: schema', validator.errors.map((error) => `${error.instancePath || 'root'} ${error.message}`).join('; '), true);
+      labOutput('Layer 2 failed: schema', validator.errors.map((error) => `${error.instancePath || translate('root')} ${translate(error.message)}`).join('; '), true);
       return;
     }
     const sum = payload.line_items.reduce((total, item) => total + item, 0);
     const violations = [];
-    if (Math.abs(sum - payload.total) > 0.001) violations.push(`items sum to ${sum}, not ${payload.total}`);
-    if (payload.total !== 65 || payload.line_items.length !== 2 || [...payload.line_items].sort((left, right) => left - right).join(',') !== '25,40') violations.push('values do not match the provided invoice');
-    if (payload.tax_id !== null) violations.push('tax ID must be null because the source does not provide it');
+    if (Math.abs(sum - payload.total) > 0.001) violations.push(translate(`items sum to ${sum}, not ${payload.total}`));
+    if (payload.total !== 65 || payload.line_items.length !== 2 || [...payload.line_items].sort((left, right) => left - right).join(',') !== '25,40') violations.push(translate('values do not match the provided invoice'));
+    if (payload.tax_id !== null) violations.push(translate('tax ID must be null because the source does not provide it'));
     if (violations.length) labOutput('Layer 3 failed: meaning', `Valid JSON and a valid schema are not enough: ${violations.join('; ')}. Repair against the source, with a retry cap.`, true);
     else labOutput('All three local checks passed', 'JSON parses, required fields and types conform, amounts match the source and sum correctly, and absent information remains null. These checks cover this small example, not every possible invoice.');
   }
@@ -598,6 +665,7 @@
     document.body.classList.toggle('focus-active', active);
     const button = document.getElementById('focus-toggle');
     button.setAttribute('aria-pressed', String(active));
+    button.setAttribute('aria-label', active ? 'Leave focus' : 'Focus mode');
     button.innerHTML = `${icon(active ? 'minimize-2' : 'scan')}<span>${active ? 'Leave focus' : 'Focus mode'}</span>`;
     refreshIcons();
   }
@@ -671,7 +739,7 @@
     const action = button.dataset.action;
     const value = button.dataset.value;
     if (action === 'filter-stage') { stageFilter = value; render(); }
-    else if (action === 'lesson-tab') { lessonTab = value; rerenderAtPosition(); }
+    else if (action === 'lesson-tab') { lessonTab = value; rerenderAtPosition(`.lesson-tabs [data-value="${value}"]`); }
     else if (action === 'bookmark') {
       const id = button.dataset.id;
       progress.bookmarks = progress.bookmarks.includes(id) ? progress.bookmarks.filter((item) => item !== id) : [...progress.bookmarks, id];
@@ -689,7 +757,7 @@
       engine.completeLesson(progress, viewId);
       save(); rerenderAtPosition();
       toast(wasComplete ? 'This lesson is already complete.' : 'Lesson complete. One more concept in place.');
-    } else if (action === 'practice-mode') { practiceMode = value; if (value === 'exam') practiceDomain = 'all'; render(); }
+    } else if (action === 'practice-mode') { practiceMode = value; if (value === 'exam') practiceDomain = 'all'; rerenderAtPosition(`[data-action="practice-mode"][data-value="${value}"]`); }
     else if (action === 'start-practice') startQuiz();
     else if (action === 'scenario-practice') startQuiz(button.dataset.scenario);
     else if (action === 'quiz-next' || action === 'quiz-prev' || action === 'quiz-jump') {
@@ -714,7 +782,7 @@
     else if (action === 'import-progress') document.getElementById('import-progress').click();
     else if (action === 'export-notes') {
       const notes = content.lessons.filter((lesson) => progress.notes[lesson.id]?.trim() || progress.bookmarks.includes(lesson.id));
-      download('atlas-notebook.md', `# My Claude study notebook\n\n${notes.map((lesson) => `## ${lesson.title}\n\n${progress.notes[lesson.id] || '(Bookmarked)'}\n`).join('\n')}`, 'text/markdown');
+      download('atlas-notebook.md', `# ${translate('My Claude study notebook')}\n\n${notes.map((lesson) => `## ${lesson.title}\n\n${progress.notes[lesson.id] || translate('(Bookmarked)')}\n`).join('\n')}`, 'text/markdown');
     } else if (action === 'reset-progress') confirm('Reset all study progress?', 'This removes completed lessons, answers, notes, bookmarks, recall schedules, and practice history from this browser. Export a backup first if you want to keep them.', () => {
       progress = engine.freshProgress(); quiz = null; recallQueue = null; recallIndex = 0; recallRevealed = false;
       practiceDomain = 'all'; practiceMode = 'learn'; practiceCount = 10; stageFilter = 'all'; notebookQuery = ''; checkpoint = null;
@@ -749,8 +817,8 @@
       labOutput(`${correct} / 5 correctly placed`, correct === 5 ? 'Team instructions, path rules, task skills, MCP definitions, and enforced settings each have a distinct job. Keep secrets outside committed configuration.' : 'The correct sequence is: project CLAUDE.md; path rules; skill; root .mcp.json; .claude/settings.json. Use the owning surface rather than relying on prose to configure a service.', correct !== 5);
     } else if (action === 'save-brief') {
       const brief = document.getElementById('brief-preview').textContent;
-      progress.notes['prompt-brief'] = `${progress.notes['prompt-brief'] || ''}\n\nMy prompt brief:\n${brief}`.trim().slice(0, 20000);
-      save(); toast('Brief saved to your notebook.');
+      progress.notes['prompt-brief'] = `${progress.notes['prompt-brief'] || ''}\n\n${translate('My prompt brief:')}\n${brief}`.trim().slice(0, 20000);
+      toast(save() ? 'Brief saved to your notebook.' : 'Brief is in memory only. Export your notebook before closing.');
     } else if (action === 'start-focus') {
       setFocus(true);
       if (!focusDeadline) toggleFocusTimer();
@@ -794,6 +862,7 @@
     }
   });
 
+  document.getElementById('language-select').addEventListener('change', (event) => changeLanguage(event.target.value));
   document.getElementById('track-select').addEventListener('change', (event) => {
     const nextTrack = event.target.value;
     const change = () => {
@@ -897,6 +966,10 @@
   }
   setInterval(tick, 1000);
   setInterval(() => { if (!document.hidden && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) drawAudio(); }, 80);
+  document.documentElement.lang = language;
+  document.getElementById('language-select').value = language;
+  const translationObserver = new MutationObserver(() => i18n.apply(document.body, locale));
+  translationObserver.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'title', 'placeholder', 'alt'] });
   restoreQuiz();
   route();
   tick();

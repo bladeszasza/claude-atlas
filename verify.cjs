@@ -26,6 +26,154 @@ async function noHorizontalOverflow(page, label) {
   check(dimensions.width <= dimensions.viewport + 1, `${label}: horizontal overflow ${dimensions.width}/${dimensions.viewport}`);
 }
 
+async function verifyLanguages(browser) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+  try {
+    const page = await context.newPage();
+    const errors = [];
+    const fontRequests = [];
+    await page.clock.install();
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+    page.on('request', (request) => { if (request.url().includes('latin-ext')) fontRequests.push(request.url()); });
+    const shared = require('./locales/ui.js');
+    const locales = Object.fromEntries(['hu', 'es'].map((language) => [language, { ...require(`./locales/${language}.js`), ...shared[language] }]));
+    const i18n = require('./i18n.js');
+    const translate = (text, language) => i18n.translate(text, locales[language]);
+    const switchLanguage = async (language) => {
+      await page.locator('#language-select').selectOption(language);
+      await expect(page.locator('html')).toHaveAttribute('lang', language);
+      await expect(page.locator('#search-toggle')).toHaveAttribute('aria-label', translate('Search concepts', language));
+    };
+    await page.goto(`${url}#lesson/first-principles`);
+    await expect(page.locator('.avatar')).toHaveCount(0);
+    const note = '<img src=x onerror=alert(1)> Focus mode: árvíztűrő, pingüino.';
+    await page.locator('#lesson-note').fill(note);
+    await page.locator('.lesson-tabs [data-value="check"]').click();
+    await expect(page.locator('.lesson-tabs [data-value="check"]')).toBeFocused();
+    await page.locator('[data-action="select-answer"][data-index="1"]').click();
+    const initialProgress = await page.evaluate(() => localStorage.getItem('claude-atlas-v1'));
+    for (const language of ['hu', 'es', 'en', 'hu', 'es', 'en']) {
+      await switchLanguage(language);
+      const localized = language === 'en' ? bank[0] : i18n.localizeQuestions([bank[0]], locales[language])[0];
+      await expect(page.locator('.question-box h3')).toHaveText(localized.stem);
+      await expect(page.locator('.answer-option[aria-pressed="true"]')).toHaveCount(1);
+      await expect(page.locator('#lesson-note')).toHaveValue(note);
+      await expect(page.locator('.answer-option strong,.answer-option code,.question-box h3 strong')).toHaveCount(0);
+      check(await page.evaluate(() => localStorage.getItem('claude-atlas-v1')) === initialProgress, `${language}: switching does not mutate saved progress`);
+    }
+    await navigate(page, '#notebook');
+    await switchLanguage('hu');
+    await expect(page.locator('.notebook-entry > p')).toHaveText(note);
+    await expect(page.locator('.notebook-entry img')).toHaveCount(0);
+    await navigate(page, '#practice');
+    await page.locator('[data-action="practice-mode"][data-value="exam"]').click();
+    await expect(page.locator('[data-action="practice-mode"][data-value="exam"]')).toBeFocused();
+    await page.locator('[data-action="start-practice"]').click();
+    const questionId = await page.locator('.question-box').getAttribute('data-question-id');
+    await page.locator('[data-action="select-answer"][data-index="1"]').click();
+    const session = await page.evaluate(() => JSON.parse(localStorage.getItem('claude-atlas-v1-quiz')));
+    await page.clock.fastForward(65000);
+    for (const language of ['es', 'en', 'hu']) {
+      await switchLanguage(language);
+      const question = bank.find((item) => item.id === questionId);
+      const stem = language === 'en' ? question.stem : locales[language].questions[questionId][0];
+      await expect(page.locator('.question-box h3')).toHaveText(stem);
+      await expect(page.locator('[data-action="select-answer"][data-index="1"]')).toHaveAttribute('aria-pressed', 'true');
+      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('claude-atlas-v1-quiz'))), session);
+    }
+    await page.reload();
+    await expect(page.locator('#language-select')).toHaveValue('hu');
+    await expect(page.locator('[data-action="exit-quiz"]')).toHaveText('Kilépés');
+    await expect(page.locator('.question-box')).toHaveAttribute('data-question-id', questionId);
+    await expect(page.locator('[data-action="select-answer"][data-index="1"]')).toHaveAttribute('aria-pressed', 'true');
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('claude-atlas-v1-quiz'))), session);
+    const remaining = await page.evaluate((deadline) => Math.max(0, Math.ceil((deadline - Date.now()) / 1000)), session.deadline);
+    const clockParts = (await page.locator('#quiz-clock span').textContent()).split(':').map(Number);
+    const displayed = clockParts.reduce((total, part) => total * 60 + part, 0);
+    check(Math.abs(displayed - remaining) <= 1 && remaining < 7150, 'Reloaded translated rehearsal uses the original partially elapsed countdown');
+    await page.clock.fastForward((remaining + 1) * 1000);
+    await expect(page.locator('.results-header')).toBeVisible();
+    await expect(page.locator('.page-heading')).toContainText('Lejárt az idő');
+    await page.locator('[data-action="new-quiz"]').click();
+    check(true, 'Locale changes and reload preserve timed answers, question IDs and original deadline');
+
+    await navigate(page, '#labs/loop');
+    await expect(page.locator('[data-action="open-lab"][data-value="loop"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('[data-action="loop-step"]').click();
+    await expect(page.locator('#lab-output > strong')).toHaveText('2. A modell eszközt kér');
+    await expect(page.locator('#lab-output code')).toContainText(['stop_reason', 'tool_use', 'lookup_order']);
+    await switchLanguage('es');
+    await expect(page.locator('#lab-output > strong')).toHaveText('2. El modelo solicita una herramienta');
+    await page.screenshot({ path: path.join(results, 'es-desktop-loop.png'), animations: 'disabled' });
+    await navigate(page, '#labs/prompt');
+    await expect(page.locator('#brief-audience')).toHaveValue('Dirección no técnica');
+    await page.locator('#brief-audience').fill('Focus mode: my own audience');
+    await switchLanguage('hu');
+    await expect(page.locator('#brief-audience')).toHaveValue('Focus mode: my own audience');
+    await expect(page.locator('#brief-task')).toHaveValue('Foglald össze az incidensjelentést');
+    await navigate(page, '#labs/schema');
+    await expect(page.locator('#json-input')).toBeVisible();
+    await page.locator('[data-action="validate-json"]').click();
+    await expect(page.locator('#lab-output')).toContainText('a tételek összege 65, nem 80');
+    await switchLanguage('es');
+    await expect(page.locator('#lab-output')).toContainText('las partidas suman 65, no 80');
+    await page.locator('#json-input').fill('{"total":"65","line_items":[40,25],"tax_id":null}');
+    await page.locator('[data-action="validate-json"]').click();
+    await expect(page.locator('#lab-output')).toContainText('/total debe ser number');
+    await switchLanguage('en');
+    await expect(page.locator('#lab-output')).toContainText('/total must be number');
+    check(true, 'Lab state, user-authored input and validation details survive language changes');
+
+    for (const language of ['en', 'hu', 'es']) {
+      await switchLanguage(language);
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
+        for (const [hash, title] of [['#learn', 'Make the concepts click.'], ['#labs/loop', 'The scenario lab'], ['#practice', 'The practice room'], ['#progress', 'Keep the momentum.'], ['#library', 'The field guide']]) {
+          await navigate(page, hash);
+          await expect(page.locator('main h1')).toHaveText(translate(title, language));
+          await page.evaluate(() => document.fonts.ready);
+          await noHorizontalOverflow(page, `${language} ${width} ${hash}`);
+        }
+        await navigate(page, '#labs/loop');
+        await expect(page.locator('#lab-output > strong')).toHaveText(translate('1. A request enters', language));
+        await page.locator('[data-action="loop-step"]').click();
+        await page.screenshot({ path: path.join(results, `${language}-${width}-loop.png`), animations: 'disabled' });
+        await expect(page.locator('#focus-toggle')).toHaveAttribute('aria-label', translate('Focus mode', language));
+        await page.locator('#focus-toggle').click();
+        await expect(page.locator('#focus-toggle')).toHaveAttribute('aria-label', translate('Leave focus', language));
+        await noHorizontalOverflow(page, `${language} ${width} focused lab`);
+        await page.locator('#focus-toggle').click();
+      }
+      await navigate(page, '#library');
+      await expect(page.locator('.source-card')).toHaveCount(Object.keys(content.sources).length);
+      await expect(page.locator('#source-signaling a')).toHaveAttribute('href', content.sources.signaling.url);
+      await page.locator('[data-action="library-tab"][data-value="glossary"]').click();
+      await expect(page.locator('.glossary a')).toHaveCount(content.glossary.length);
+      await navigate(page, '#recall');
+      await expect(page.locator('[data-action="flip-card"]')).toBeVisible();
+      if (!await page.locator('.flashcard').evaluate((card) => card.classList.contains('revealed'))) await page.locator('[data-action="flip-card"]').click();
+      await expect(page.locator('#recall-face')).toContainText(language === 'en' ? content.lessons[0].simple : locales[language].lessons['first-principles'].simple);
+      await navigate(page, '#library/sources');
+    }
+    check(fontRequests.length > 0, 'Hungarian extended Latin font assets load');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await navigate(page, '#labs/prompt');
+    await expect(page.locator('#brief-task')).toBeVisible();
+    await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Storage unavailable', 'QuotaExceededError'); }; });
+    await page.locator('[data-action="save-brief"]').click();
+    await expect(page.locator('#toast')).toContainText('solo está en memoria');
+    await navigate(page, '#lesson/prompt-brief');
+    await expect(page.locator('#note-status')).toHaveText('Solo en memoria; exporta una copia');
+    await page.locator('.lesson-tabs [data-value="deeper"]').click();
+    await expect(page.locator('.lesson-tabs [data-value="deeper"]')).toBeFocused();
+    await expect(page.locator('#note-status')).toHaveText('Solo en memoria; exporta una copia');
+    check(errors.length === 0, `Locale browser errors: ${errors.join('\n')}`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   const browser = await chromium.launch({ headless: true });
   let server;
@@ -105,30 +253,30 @@ async function run() {
 
     await navigate(page, '#labs/schema');
     await page.locator('[data-action="validate-json"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('Layer 3 failed: meaning');
+    await expect(page.locator('#lab-output > strong')).toHaveText('Layer 3 failed: meaning');
     await page.locator('[data-action="json-example"][data-value="syntax"]').click();
     await page.locator('[data-action="validate-json"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('Layer 1 failed: JSON syntax');
+    await expect(page.locator('#lab-output > strong')).toHaveText('Layer 1 failed: JSON syntax');
     await page.locator('#json-input').fill('{"total":"65","line_items":[40,25],"tax_id":null}');
     await page.locator('[data-action="validate-json"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('Layer 2 failed: schema');
+    await expect(page.locator('#lab-output > strong')).toHaveText('Layer 2 failed: schema');
     await page.locator('[data-action="json-example"][data-value="valid"]').click();
     await page.locator('[data-action="validate-json"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('All three local checks passed');
+    await expect(page.locator('#lab-output > strong')).toHaveText('All three local checks passed');
     await page.screenshot({ path: path.join(results, 'schema-lab.png'), animations: 'disabled' });
 
     await navigate(page, '#labs/policy');
     await page.locator('[data-action="policy-run"]').click();
-    await expect(page.locator('#lab-output strong')).toContainText('BLOCKED');
+    await expect(page.locator('#lab-output > strong')).toContainText('BLOCKED');
     await page.locator('#refund-amount').fill('250');
-    await expect(page.locator('#lab-output strong')).toContainText('ALLOWED');
+    await expect(page.locator('#lab-output > strong')).toContainText('ALLOWED');
     await page.locator('#verified-customer').uncheck();
-    await expect(page.locator('#lab-output strong')).toContainText('identity');
+    await expect(page.locator('#lab-output > strong')).toContainText('identity');
 
     await navigate(page, '#labs/cache');
-    await expect(page.locator('#lab-output strong')).toHaveText('0 stable prefix tokens');
+    await expect(page.locator('#lab-output > strong')).toHaveText('0 stable prefix tokens');
     for (let index = 0; index < 3; index += 1) await page.locator(`.cache-block.dynamic [data-direction="1"]`).click();
-    await expect(page.locator('#lab-output strong')).toHaveText('7,000 stable prefix tokens');
+    await expect(page.locator('#lab-output > strong')).toHaveText('7,000 stable prefix tokens');
     await navigate(page, '#labs/context');
     await expect(page.locator('#lab-output')).toHaveClass(/failed/);
     await page.locator('#context-trim').check();
@@ -139,7 +287,7 @@ async function run() {
     await navigate(page, '#labs/config');
     for (let index = 0; index < 5; index += 1) await page.locator(`[data-config-index="${index}"]`).selectOption(String(index));
     await page.locator('[data-action="check-config"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('5 / 5 correctly placed');
+    await expect(page.locator('#lab-output > strong')).toHaveText('5 / 5 correctly placed');
     await navigate(page, '#labs/calibration');
     await expect(page.locator('#aggregate-value')).toHaveText('97%');
     await expect(page.locator('#segment-errors')).toHaveText('21');
@@ -149,10 +297,10 @@ async function run() {
     await page.locator('[data-action="save-brief"]').click();
     await navigate(page, '#labs/architecture');
     await page.locator('[data-action="architecture-answer"][data-index="1"]').click();
-    await expect(page.locator('#lab-output strong')).toContainText('proportionate');
+    await expect(page.locator('#lab-output > strong')).toContainText('proportionate');
     await navigate(page, '#labs/loop');
     for (let index = 0; index < 4; index += 1) await page.locator('[data-action="loop-step"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('5. A new model turn');
+    await expect(page.locator('#lab-output > strong')).toHaveText('5. A new model turn');
 
     await navigate(page, '#practice');
     await page.locator('#practice-count').selectOption('5');
@@ -370,9 +518,10 @@ async function run() {
     await navigate(page, '#labs/schema');
     await expect(page.locator('#json-input')).toBeVisible();
     await page.locator('[data-action="validate-json"]').click();
-    await expect(page.locator('#lab-output strong')).toHaveText('Layer 3 failed: meaning');
+    await expect(page.locator('#lab-output > strong')).toHaveText('Layer 3 failed: meaning');
     check(true, 'Loaded study features work without network access');
     check(errors.length === 0, `Browser errors: ${errors.join('\n')}`);
+    await verifyLanguages(browser);
     console.log(`Browser verification passed: ${assertions} explicit assertions plus Playwright checks across lessons, labs, practice, reload, audio, recall, search, import/export, and responsive views.`);
     console.log(`Verified ${server ? 'built HTTP site at /claude-atlas/' : 'local file page'}. Screenshots: ${results}`);
     await context.close();

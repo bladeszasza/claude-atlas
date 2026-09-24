@@ -15,6 +15,10 @@
   <script defer src="content.js"></script>
   <script defer src="scenarios.js"></script>
   <script defer src="questions.js"></script>
+  <script defer src="i18n.js"></script>
+  <script defer src="locales/hu.js"></script>
+  <script defer src="locales/es.js"></script>
+  <script defer src="locales/ui.js"></script>
   <script defer src="audio.js"></script>
   <script defer src="app.js"></script>
 </head>
@@ -52,9 +56,10 @@
       <button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation" aria-expanded="false"><i data-lucide="menu"></i></button>
       <div class="breadcrumb"><span>Atlas</span><i data-lucide="chevron-right"></i><strong id="view-name">Learning path</strong></div>
       <div class="top-actions">
+        <label class="sr-only" for="language-select">Language</label>
+        <select id="language-select" aria-label="Language"><option value="en" lang="en">English</option><option value="hu" lang="hu">Magyar</option><option value="es" lang="es">Español</option></select>
         <button class="icon-button" id="search-toggle" title="Search concepts" aria-label="Search concepts"><i data-lucide="search"></i></button>
-        <button class="focus-toggle" id="focus-toggle" aria-pressed="false"><i data-lucide="scan"></i><span>Focus mode</span></button>
-        <span class="avatar" title="Your local study workspace">you</span>
+        <button class="focus-toggle" id="focus-toggle" aria-label="Focus mode" aria-pressed="false"><i data-lucide="scan"></i><span>Focus mode</span></button>
       </div>
     </header>
     <main id="main" tabindex="-1"><div class="initial-state"><p class="eyebrow">YOUR STUDY WORKSPACE</p><h1>Claude certification, one concept at a time.</h1><p>Opening your learning path...</p></div></main>
